@@ -21,6 +21,11 @@ on:
         description: "CUDA base tag"
         required: false
         default: "13.0.0"
+      force:
+        description: "Build even if this Strata commit is already published"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -54,6 +59,26 @@ jobs:
           echo "version=$ver" >> "$GITHUB_OUTPUT"
           echo "resolved $REF -> $sha (Strata $ver)"
 
+      # scheduled/manual runs skip when the published image already sits on this
+      # exact upstream commit. Push/tag runs always build.
+      - name: Check whether this commit is already published
+        id: check
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          set -e
+          sudo apt-get update -qq && sudo apt-get install -y -qq skopeo || true
+          cur=$(skopeo inspect --no-tags --authfile "${HOME}/.docker/config.json" \
+                  "docker://${{ steps.img.outputs.name }}:latest" 2>/dev/null \
+                | jq -r '.Labels["org.opencontainers.image.revision"] // empty' || true)
+          want="${{ steps.strata.outputs.sha }}"
+          echo "published revision: ${cur:-<none>} | upstream: $want"
+          if [ -n "$cur" ] && [ "$cur" = "$want" ] && [ "${{ github.event.inputs.force }}" != "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "already up to date - nothing to build"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
@@ -75,6 +100,7 @@ jobs:
             type=sha,format=short
 
       - name: Build and push
+        if: steps.check.outputs.skip != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
