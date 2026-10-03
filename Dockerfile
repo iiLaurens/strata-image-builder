@@ -23,7 +23,7 @@ FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu24.04 AS build
 
 ARG CUDA_ARCHITECTURES=120
 ARG STRATA_REPO=https://github.com/Niko1221/Strata.git
-ARG STRATA_REF=main
+ARG STRATA_REF=v0.1.38
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential ca-certificates git libatomic1 libgomp1 \

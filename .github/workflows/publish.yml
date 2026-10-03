@@ -3,16 +3,15 @@ name: publish
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    paths: ["Dockerfile"]        # rebuild only when the image recipe changes
   schedule:
-    # weekly: rebuild against upstream's latest, so the image stays current
-    - cron: "0 4 * * 1"
+    - cron: "0 4 * * 1"          # weekly: pick up a new upstream tag
   workflow_dispatch:
     inputs:
       strata_ref:
-        description: "Strata ref (branch/tag/commit). Default: latest main."
+        description: "Upstream tag/ref. Empty = latest tagged release."
         required: false
-        default: "main"
+        default: ""
       cuda_architectures:
         description: "CUDA archs, semicolon-separated (e.g. 120, or 86;89;120)"
         required: false
@@ -22,7 +21,7 @@ on:
         required: false
         default: "13.0.0"
       force:
-        description: "Build even if this Strata commit is already published"
+        description: "Build even if this release is already published"
         type: boolean
         required: false
         default: false
@@ -41,29 +40,35 @@ jobs:
         id: img
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve Strata ref and version
+      - name: Resolve upstream release
         id: strata
         env:
-          REF: ${{ github.event.inputs.strata_ref || 'main' }}
+          REF: ${{ github.event.inputs.strata_ref || '' }}
         run: |
           set -euo pipefail
           repo=https://github.com/Niko1221/Strata.git
-          sha=$(git ls-remote "$repo" "refs/heads/$REF" | awk '{print $1}')
-          [ -n "$sha" ] || sha=$(git ls-remote "$repo" "refs/tags/$REF^{}" | awk '{print $1}')
+          if [ -z "$REF" ]; then
+            REF=$(git ls-remote --tags --refs "$repo" \
+                    | awk -F/ '{print $NF}' | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          fi
+          [ -n "$REF" ] || { echo "::error::no upstream tag found"; exit 1; }
+          sha=$(git ls-remote "$repo" "refs/tags/$REF^{}" | awk '{print $1}')
           [ -n "$sha" ] || sha=$(git ls-remote "$repo" "refs/tags/$REF" | awk '{print $1}')
+          [ -n "$sha" ] || sha=$(git ls-remote "$repo" "refs/heads/$REF" | awk '{print $1}')
           [ -n "$sha" ] || sha="$REF"
           ver=$(curl -fsSL "https://raw.githubusercontent.com/Niko1221/Strata/$sha/CMakeLists.txt" \
                  | grep -oE 'project\(strata VERSION [0-9]+\.[0-9]+\.[0-9]+' | awk '{print $3}')
-          [ -n "$ver" ] || ver="0.0.0"
+          [ -n "$ver" ] || ver="${REF#v}"
+          echo "tag=$REF" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "version=$ver" >> "$GITHUB_OUTPUT"
           echo "resolved $REF -> $sha (Strata $ver)"
 
-      # scheduled/manual runs skip when the published image already sits on this
-      # exact upstream commit. Push/tag runs always build.
-      - name: Check whether this commit is already published
+      # scheduled/manual runs skip when the published image is already on this
+      # exact release commit; push (Dockerfile changed) always builds.
+      - name: Check whether this release is already published
         id: check
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        if: github.event_name != 'push'
         run: |
           set -e
           sudo apt-get update -qq && sudo apt-get install -y -qq skopeo || true
@@ -97,7 +102,6 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=${{ steps.strata.outputs.version }}
             type=raw,value=${{ steps.strata.outputs.version }}-cu${{ github.event.inputs.cuda_version || '13.0.0' }}
-            type=sha,format=short
 
       - name: Build and push
         if: steps.check.outputs.skip != 'true'
