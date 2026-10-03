@@ -102,6 +102,11 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=${{ steps.strata.outputs.version }}
             type=raw,value=${{ steps.strata.outputs.version }}-cu${{ github.event.inputs.cuda_version || '13.0.0' }}
+          # override metadata-action's defaults: revision must be the Strata commit
+          # (the skip guard reads it); version must be the Strata version.
+          labels: |
+            org.opencontainers.image.revision=${{ steps.strata.outputs.sha }}
+            org.opencontainers.image.version=${{ steps.strata.outputs.version }}
 
       - name: Build and push
         if: steps.check.outputs.skip != 'true'
