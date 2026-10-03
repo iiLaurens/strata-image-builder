@@ -62,6 +62,15 @@ eng = setup.ROOT / "engine"
 eng.mkdir(exist_ok=True)
 shutil.copy2(setup.ROOT / "build" / setup.EXE, eng / setup.EXE)
 print("engine built:", eng / setup.EXE, flush=True)
+
+# vision helper (llama.cpp mtmd + the mmproj projector). The encoder itself is
+# chosen at run time by the config's "vision" section (GPU or CPU), so shipping
+# the binary costs nothing unless the config enables it.
+setup.cmake_build(setup.ROOT / "tools" / "vision", setup.ROOT / "build-vision", "strata-vision",
+    [f"-DLLAMA_DIR={llama}", "-DSTRATA_VISION_CUDA=ON",
+     f"-DCMAKE_CUDA_ARCHITECTURES={arch}", f"-DCMAKE_CUDA_COMPILER={nvcc}"], None, "build-vision.bat")
+shutil.copy2(setup.ROOT / "build-vision" / "bin" / setup.VEXE, eng / setup.VEXE)
+print("vision encoder built:", eng / setup.VEXE, flush=True)
 PYEOF
 
 # ============================== runtime ====================================
@@ -91,6 +100,7 @@ COPY --from=build /src/strata/serve ./serve
 COPY --from=build /src/strata/tools ./tools
 COPY --from=build /src/strata/data/expert-profile.bin ./data/expert-profile.bin
 COPY --from=build /src/strata/engine/strata ./engine/strata
+COPY --from=build /src/strata/engine/strata-vision ./engine/strata-vision
 
 ENV PYTHONDONTWRITEBYTECODE=1
 
