@@ -23,7 +23,7 @@ FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu24.04 AS build
 
 ARG CUDA_ARCHITECTURES=120
 ARG STRATA_REPO=https://github.com/Niko1221/Strata.git
-ARG STRATA_REF=99f3dbd0b21d1401b3769e0c0d963913607f380b
+ARG STRATA_REF=main
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential ca-certificates git libatomic1 libgomp1 \
@@ -70,9 +70,11 @@ FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu24.04 AS runtime
 # which is exactly what the engine links (libcudart/libcublas/libcublasLt.so.13).
 
 ARG STRATA_REF
+ARG STRATA_VERSION
 LABEL org.opencontainers.image.title="Strata" \
       org.opencontainers.image.description="Strata inference engine (Qwen3.8-Flash-Next), CUDA 13" \
       org.opencontainers.image.source="https://github.com/Niko1221/Strata" \
+      org.opencontainers.image.version="${STRATA_VERSION}" \
       org.opencontainers.image.revision="${STRATA_REF}" \
       org.opencontainers.image.licenses="MIT"
 

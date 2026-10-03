@@ -4,16 +4,23 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  schedule:
+    # weekly: rebuild against upstream's latest, so the image stays current
+    - cron: "0 4 * * 1"
   workflow_dispatch:
     inputs:
       strata_ref:
-        description: "Strata git ref (commit/tag/branch) to build"
+        description: "Strata ref (branch/tag/commit). Default: latest main."
         required: false
-        default: "99f3dbd0b21d1401b3769e0c0d963913607f380b"
+        default: "main"
       cuda_architectures:
         description: "CUDA archs, semicolon-separated (e.g. 120, or 86;89;120)"
         required: false
         default: "120"
+      cuda_version:
+        description: "CUDA base tag"
+        required: false
+        default: "13.0.0"
 
 permissions:
   contents: read
@@ -28,6 +35,24 @@ jobs:
       - name: Image name (lowercase, GHCR requires it)
         id: img
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve Strata ref and version
+        id: strata
+        env:
+          REF: ${{ github.event.inputs.strata_ref || 'main' }}
+        run: |
+          set -euo pipefail
+          repo=https://github.com/Niko1221/Strata.git
+          sha=$(git ls-remote "$repo" "refs/heads/$REF" | awk '{print $1}')
+          [ -n "$sha" ] || sha=$(git ls-remote "$repo" "refs/tags/$REF^{}" | awk '{print $1}')
+          [ -n "$sha" ] || sha=$(git ls-remote "$repo" "refs/tags/$REF" | awk '{print $1}')
+          [ -n "$sha" ] || sha="$REF"
+          ver=$(curl -fsSL "https://raw.githubusercontent.com/Niko1221/Strata/$sha/CMakeLists.txt" \
+                 | grep -oE 'project\(strata VERSION [0-9]+\.[0-9]+\.[0-9]+' | awk '{print $3}')
+          [ -n "$ver" ] || ver="0.0.0"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "resolved $REF -> $sha (Strata $ver)"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -45,7 +70,8 @@ jobs:
           images: ${{ steps.img.outputs.name }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=tag
+            type=raw,value=${{ steps.strata.outputs.version }}
+            type=raw,value=${{ steps.strata.outputs.version }}-cu${{ github.event.inputs.cuda_version || '13.0.0' }}
             type=sha,format=short
 
       - name: Build and push
@@ -57,6 +83,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             CUDA_ARCHITECTURES=${{ github.event.inputs.cuda_architectures || '120' }}
-            STRATA_REF=${{ github.event.inputs.strata_ref || '99f3dbd0b21d1401b3769e0c0d963913607f380b' }}
+            CUDA_VERSION=${{ github.event.inputs.cuda_version || '13.0.0' }}
+            STRATA_REF=${{ steps.strata.outputs.sha }}
+            STRATA_VERSION=${{ steps.strata.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
