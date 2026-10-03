@@ -1,0 +1,5 @@
+# Keep the build context tiny: everything the image needs is fetched inside the
+# Dockerfile (git clone + llama.cpp download), so only the Dockerfile is used.
+*
+!Dockerfile
+!.dockerignore
